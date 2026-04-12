@@ -38,7 +38,7 @@ struct NotchMenuView: View {
             // Appearance settings
             ScreenPickerRow(screenSelector: screenSelector)
             SoundPickerRow(soundSelector: soundSelector)
-            ClaudeDirPickerRow()
+            ClaudeDirPickerRow(viewModel: viewModel)
 
             Divider()
                 .background(Color.white.opacity(0.08))
