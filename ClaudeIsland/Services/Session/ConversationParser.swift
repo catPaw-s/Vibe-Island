@@ -666,7 +666,7 @@ actor ConversationParser {
             return parseGlobResult(toolUseResult)
         case "TodoWrite":
             return parseTodoWriteResult(toolUseResult)
-        case "Task":
+        case "Task", "Agent":
             return parseTaskResult(toolUseResult)
         case "WebFetch":
             return parseWebFetchResult(toolUseResult)

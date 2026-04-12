@@ -711,9 +711,10 @@ struct ToolCallView: View {
         tool.result != nil || tool.structuredResult != nil
     }
 
-    /// Whether the tool can be expanded (has result, NOT Task tools, NOT Edit tools)
+    /// Whether the tool can be expanded (has result, NOT Task/Agent, NOT Edit).
+    /// "Agent" is the new name for "Task" in recent Claude Code versions.
     private var canExpand: Bool {
-        tool.name != "Task" && tool.name != "Edit" && hasResult
+        tool.name != "Task" && tool.name != "Agent" && tool.name != "Edit" && hasResult
     }
 
     private var showContent: Bool {
@@ -748,7 +749,7 @@ struct ToolCallView: View {
                     .foregroundColor(textColor)
                     .fixedSize()
 
-                if tool.name == "Task" && !tool.subagentTools.isEmpty {
+                if (tool.name == "Task" || tool.name == "Agent") && !tool.subagentTools.isEmpty {
                     let taskDesc = tool.input["description"] ?? "Running agent..."
                     Text("\(taskDesc) (\(tool.subagentTools.count) tools)")
                         .font(.system(size: 11))

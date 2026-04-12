@@ -89,7 +89,7 @@ class ChatHistoryManager: ObservableObject {
     private func filterOutSubagentTools(_ items: [ChatHistoryItem]) -> [ChatHistoryItem] {
         var subagentToolIds = Set<String>()
         for item in items {
-            if case .toolCall(let tool) = item.type, tool.name == "Task" {
+            if case .toolCall(let tool) = item.type, tool.name == "Task" || tool.name == "Agent" {
                 for subagentTool in tool.subagentTools {
                     subagentToolIds.insert(subagentTool.id)
                 }

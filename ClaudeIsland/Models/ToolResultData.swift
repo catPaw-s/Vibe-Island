@@ -294,7 +294,7 @@ struct ToolStatusDisplay {
             return ToolStatusDisplay(text: "Searching...", isRunning: true)
         case "WebFetch":
             return ToolStatusDisplay(text: "Fetching...", isRunning: true)
-        case "Task":
+        case "Task", "Agent":
             if let desc = input["description"], !desc.isEmpty {
                 return ToolStatusDisplay(text: desc, isRunning: true)
             }
