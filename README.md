@@ -1,8 +1,7 @@
 <div align="center">
-  <img src="ClaudeIsland/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" alt="Logo" width="100" height="100">
   <h3 align="center">Vibe Island</h3>
   <p align="center">
-    A macOS menu bar app that brings Dynamic Island-style notifications to Claude Code CLI sessions.
+    一款基于cmux中的claude-cli，codex-cli灵动岛工具
     <br />
     <br />
     <a href="https://github.com/catPaw-s/Vibe-Island/releases/latest" target="_blank" rel="noopener noreferrer">
@@ -14,46 +13,32 @@
   </p>
 </div>
 
-> **🟢 Actively maintained**
->
-> Launched v1.2 in December 2025, then took a 4-month break. v1.3 (April 2026) works through the backlog of contributor PRs and bug reports and kicks off a regular cadence again. Open PRs and issues are being reviewed — thanks for your patience.
+> 本项目基于原始 [`claude-island`](https://github.com/farouqaldori/claude-island) 开发
 
-## Features
 
-- **Notch UI** — Animated overlay that expands from the MacBook notch
-- **Live Session Monitoring** — Track multiple Claude Code sessions in real-time
-- **Permission Approvals** — Approve or deny tool executions directly from the notch
-- **Chat History** — View full conversation history with markdown rendering
-- **Auto-Setup** — Hooks install automatically on first launch
+## 功能特性
 
-## Requirements
+- **灵动岛 UI**：从 MacBook 刘海区域展开的动态浮层
+- **实时会话监控**：实时追踪多个 Claude Code 会话
+- **权限审批**：直接在灵动岛里允许或拒绝工具调用
+- **聊天记录**：支持 Markdown 渲染的完整会话历史
+- **自动初始化**：首次启动时自动安装 hooks
+
+## 运行要求
 
 - macOS 15.6+
 - Claude Code CLI
+- codex
+- cmux
 
-## Install
+## 安装方式
 
-Download the latest release or build from source:
+可以直接下载最新 release，或从源码构建：
 
 ```bash
 xcodebuild -scheme ClaudeIsland -configuration Release build
 ```
 
-## How It Works
-
-Vibe Island installs hooks into `~/.claude/hooks/` that communicate session state via a Unix socket. The app listens for events and displays them in the notch overlay.
-
-When Claude needs permission to run a tool, the notch expands with approve/deny buttons—no need to switch to the terminal.
-
-## Analytics
-
-Vibe Island uses Mixpanel to collect anonymous usage data:
-
-- **App Launched** — App version, build number, macOS version
-- **Session Started** — When a new Claude Code session is detected
-
-No personal data or conversation content is collected.
-
-## License
+## 许可证
 
 Apache 2.0
