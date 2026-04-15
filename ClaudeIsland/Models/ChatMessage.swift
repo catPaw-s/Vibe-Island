@@ -84,12 +84,19 @@ enum MessageBlock: Equatable, Identifiable {
 /// user message blocks and nested inside tool_result content arrays.
 struct ImageBlock: Equatable {
     let mediaType: String
-    let base64Data: String
+    let base64Data: String?
+    let filePath: String?
 
     /// Stable identifier based on the data contents so SwiftUI doesn't
     /// re-render images unnecessarily across parses.
     var id: String {
-        StableHash.hash(base64Data.prefix(200))
+        if let base64Data, !base64Data.isEmpty {
+            return StableHash.hash(base64Data.prefix(200))
+        }
+        if let filePath, !filePath.isEmpty {
+            return StableHash.hash(Substring(filePath))
+        }
+        return StableHash.hash(Substring(mediaType))
     }
 }
 

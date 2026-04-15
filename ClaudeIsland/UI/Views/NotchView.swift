@@ -8,19 +8,21 @@
 import AppKit
 import CoreGraphics
 import SwiftUI
+import os.log
 
 // Corner radius constants
 private let cornerRadiusInsets = (
     opened: (top: CGFloat(19), bottom: CGFloat(24)),
     closed: (top: CGFloat(6), bottom: CGFloat(14))
 )
+private let logger = Logger(subsystem: "com.claudeisland", category: "NotchView")
 
 struct NotchView: View {
     @ObservedObject var viewModel: NotchViewModel
     @StateObject private var sessionMonitor = ClaudeSessionMonitor()
     @StateObject private var activityCoordinator = NotchActivityCoordinator.shared
     @ObservedObject private var updateManager = UpdateManager.shared
-    @State private var previousPendingIds: Set<String> = []
+    @State private var previousApprovalIds: Set<String> = []
     @State private var previousWaitingForInputIds: Set<String> = []
     @State private var waitingForInputTimestamps: [String: Date] = [:]  // sessionId -> when it entered waitingForInput
     @State private var isVisible: Bool = false
@@ -71,7 +73,7 @@ struct NotchView: View {
         // Expand for processing activity
         if activityCoordinator.expandingActivity.show {
             switch activityCoordinator.expandingActivity.type {
-            case .claude:
+            case .claude, .codex:
                 let baseWidth = 2 * max(0, closedNotchSize.height - 12) + 20
                 return baseWidth + permissionIndicatorWidth
             case .none:
@@ -198,11 +200,9 @@ struct NotchView: View {
         .onChange(of: viewModel.status) { oldStatus, newStatus in
             handleStatusChange(from: oldStatus, to: newStatus)
         }
-        .onChange(of: sessionMonitor.pendingInstances) { _, sessions in
-            handlePendingSessionsChange(sessions)
-        }
         .onChange(of: sessionMonitor.instances) { _, instances in
             handleProcessingChange()
+            handleApprovalSessionsChange(instances)
             handleWaitingForInputChange(instances)
         }
     }
@@ -210,7 +210,17 @@ struct NotchView: View {
     // MARK: - Notch Layout
 
     private var isProcessing: Bool {
-        activityCoordinator.expandingActivity.show && activityCoordinator.expandingActivity.type == .claude
+        activityCoordinator.expandingActivity.show &&
+        (activityCoordinator.expandingActivity.type == .claude || activityCoordinator.expandingActivity.type == .codex)
+    }
+
+    private var activeActivitySource: EditorSource {
+        switch activityCoordinator.expandingActivity.type {
+        case .codex:
+            return .codex
+        case .claude, .none:
+            return .claude
+        }
     }
 
     /// Whether to show the expanded closed state (processing, pending permission, or waiting for input)
@@ -249,8 +259,14 @@ struct NotchView: View {
             // Left side - crab + optional permission indicator (visible when processing, pending, or waiting for input)
             if showClosedActivity {
                 HStack(spacing: 4) {
-                    ClaudeCrabIcon(size: 14, animateLegs: isProcessing)
-                        .matchedGeometryEffect(id: "crab", in: activityNamespace, isSource: showClosedActivity)
+                    Group {
+                        if activeActivitySource == .codex {
+                            CodexGlyphIcon(size: 14, animate: isProcessing)
+                        } else {
+                            ClaudeCrabIcon(size: 14, animateLegs: isProcessing)
+                        }
+                    }
+                    .matchedGeometryEffect(id: "crab", in: activityNamespace, isSource: showClosedActivity)
 
                     // Permission indicator only (amber) - waiting for input shows checkmark on right
                     if hasPendingPermission {
@@ -281,7 +297,7 @@ struct NotchView: View {
             // Right side - spinner when processing/pending, checkmark when waiting for input
             if showClosedActivity {
                 if isProcessing || hasPendingPermission {
-                    ProcessingSpinner()
+                    ProcessingSpinner(source: activeActivitySource)
                         .matchedGeometryEffect(id: "spinner", in: activityNamespace, isSource: showClosedActivity)
                         .frame(width: viewModel.status == .opened ? 20 : sideWidth)
                         .padding(.trailing, viewModel.status == .opened ? 0 : 4)
@@ -298,7 +314,7 @@ struct NotchView: View {
     }
 
     private var sideWidth: CGFloat {
-        max(0, closedNotchSize.height - 12) + 10
+        max(0, closedNotchSize.height - 12) + 16
     }
 
     // MARK: - Opened Header Content
@@ -309,9 +325,15 @@ struct NotchView: View {
             // Show static crab only if not showing activity in headerRow
             // (headerRow handles crab + indicator when showClosedActivity is true)
             if !showClosedActivity {
-                ClaudeCrabIcon(size: 14)
-                    .matchedGeometryEffect(id: "crab", in: activityNamespace, isSource: !showClosedActivity)
-                    .padding(.leading, 8)
+                Group {
+                    if activeActivitySource == .codex {
+                        CodexGlyphIcon(size: 14)
+                    } else {
+                        ClaudeCrabIcon(size: 14)
+                    }
+                }
+                .matchedGeometryEffect(id: "crab", in: activityNamespace, isSource: !showClosedActivity)
+                .padding(.leading, 8)
             }
 
             Spacer()
@@ -391,8 +413,10 @@ struct NotchView: View {
 
     private func handleProcessingChange() {
         if isAnyProcessing || hasPendingPermission {
-            // Show claude activity when processing or waiting for permission
-            activityCoordinator.showActivity(type: .claude)
+            let source = sessionMonitor.instances.first {
+                $0.phase == .processing || $0.phase == .compacting || $0.phase.isWaitingForApproval
+            }?.source ?? .claude
+            activityCoordinator.showActivity(type: source == .codex ? .codex : .claude)
             isVisible = true
         } else if hasWaitingForInput {
             // Keep visible for waiting-for-input but hide the processing spinner
@@ -433,37 +457,58 @@ struct NotchView: View {
         }
     }
 
-    private func handlePendingSessionsChange(_ sessions: [SessionState]) {
-        let currentIds = Set(sessions.map { $0.stableId })
-        let newPendingIds = currentIds.subtracting(previousPendingIds)
+    private func handleApprovalSessionsChange(_ instances: [SessionState]) {
+        let approvalSessions = instances.filter { $0.phase.isWaitingForApproval }
+        let currentIds = Set(approvalSessions.map { $0.stableId })
+        let newApprovalIds = currentIds.subtracting(previousApprovalIds)
 
         if case .permission(let sessionId) = viewModel.contentType,
-           !sessions.contains(where: { $0.sessionId == sessionId && $0.phase.isWaitingForApproval }) {
+           !approvalSessions.contains(where: { $0.sessionId == sessionId }) {
+            logger.debug("Clearing permission card because session \(sessionId, privacy: .public) is no longer waiting for approval")
             viewModel.contentType = .instances
         }
 
-        if !newPendingIds.isEmpty,
-           let targetSession = sessions.first(where: { newPendingIds.contains($0.stableId) }) {
+        logger.debug("Approval sessions count=\(approvalSessions.count, privacy: .public) current=\(String(describing: Array(currentIds).sorted()), privacy: .public) new=\(String(describing: Array(newApprovalIds).sorted()), privacy: .public)")
+
+        if !newApprovalIds.isEmpty,
+           let targetSession = approvalSessions.first(where: { newApprovalIds.contains($0.stableId) }) {
+            surfacePermissionPrompt(for: targetSession)
+        } else if !approvalSessions.isEmpty,
+                  viewModel.status == .closed,
+                  !isShowingPermissionPrompt,
+                  let targetSession = approvalSessions.first {
+            logger.debug("Surfacing existing approval for session \(targetSession.sessionId, privacy: .public) while notch is closed")
             surfacePermissionPrompt(for: targetSession)
         }
 
-        previousPendingIds = currentIds
+        previousApprovalIds = currentIds
+    }
+
+    private var isShowingPermissionPrompt: Bool {
+        if case .permission = viewModel.contentType {
+            return true
+        }
+        return false
     }
 
     private func surfacePermissionPrompt(for session: SessionState) {
         if case .chat(let currentSession) = viewModel.contentType,
            currentSession.sessionId == session.sessionId,
            viewModel.status == .opened {
+            logger.debug("Skipping auto-surface because chat for session \(session.sessionId, privacy: .public) is already open")
             return
         }
 
+        logger.debug("Surfacing permission prompt for session \(session.sessionId, privacy: .public) status=\(String(describing: viewModel.status), privacy: .public)")
         viewModel.showPermission(sessionId: session.sessionId)
         isVisible = true
 
         switch viewModel.status {
         case .closed, .popping:
+            logger.debug("Opening notch for permission prompt on session \(session.sessionId, privacy: .public)")
             viewModel.notchOpen(reason: .notification)
         case .opened:
+            logger.debug("Notch already open; swapping content to permission prompt for session \(session.sessionId, privacy: .public)")
             break
         }
 

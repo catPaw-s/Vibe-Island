@@ -284,7 +284,7 @@ struct ChatView: View {
 
                     // Processing indicator at bottom (first due to flip)
                     if isProcessing {
-                        ProcessingIndicatorView(turnId: lastUserMessageId)
+                        ProcessingIndicatorView(turnId: lastUserMessageId, source: session.source)
                             .padding(.horizontal, 16)
                             .scaleEffect(x: 1, y: -1)
                             .transition(.asymmetric(
@@ -583,11 +583,17 @@ struct ImageMessageView: View {
             }
         }
         .task(id: image.id) {
-            // Decode off the main thread so large images don't hitch scrolling.
-            let b64 = image.base64Data
             let decoded = await Task.detached(priority: .userInitiated) {
-                guard let data = Data(base64Encoded: b64) else { return nil as NSImage? }
-                return NSImage(data: data)
+                if let b64 = image.base64Data,
+                   let data = Data(base64Encoded: b64) {
+                    return NSImage(data: data)
+                }
+
+                if let filePath = image.filePath, !filePath.isEmpty {
+                    return NSImage(contentsOfFile: filePath)
+                }
+
+                return nil as NSImage?
             }.value
             self.decoded = decoded
         }
@@ -644,17 +650,27 @@ struct AssistantMessageView: View {
 
 struct ProcessingIndicatorView: View {
     private let baseTexts = ["Processing", "Working"]
-    private let color = Color(red: 0.85, green: 0.47, blue: 0.34) // Claude orange
     private let baseText: String
+    private let source: EditorSource
 
     @State private var dotCount: Int = 1
     private let timer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
 
     /// Use a turnId to select text consistently per user turn
-    init(turnId: String = "") {
+    init(turnId: String = "", source: EditorSource = .claude) {
         // Use hash of turnId to pick base text consistently for this turn
         let index = abs(turnId.hashValue) % baseTexts.count
         baseText = baseTexts[index]
+        self.source = source
+    }
+
+    private var color: Color {
+        switch source {
+        case .claude:
+            return Color(red: 0.85, green: 0.47, blue: 0.34)
+        case .codex:
+            return TerminalColors.blue
+        }
     }
 
     private var dots: String {
@@ -663,7 +679,7 @@ struct ProcessingIndicatorView: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
-            ProcessingSpinner()
+            ProcessingSpinner(source: source)
                 .frame(width: 6)
 
             Text(baseText + dots)

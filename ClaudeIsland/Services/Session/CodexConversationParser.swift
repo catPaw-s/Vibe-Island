@@ -66,6 +66,16 @@ actor CodexConversationParser {
                 if let payload = json["payload"] as? [String: Any] {
                     threadName = payload["thread_name"] as? String
                 }
+            case "event_msg":
+                guard let payload = json["payload"] as? [String: Any],
+                      let payloadType = payload["type"] as? String else {
+                    continue
+                }
+
+                if payloadType == "user_message",
+                   let message = parseUserMessageEvent(payload: payload, fallbackIndex: index, timestamp: json["timestamp"] as? String) {
+                    appendMessage(message, to: &messages)
+                }
             case "response_item":
                 guard let payload = json["payload"] as? [String: Any],
                       let payloadType = payload["type"] as? String else {
@@ -74,10 +84,10 @@ actor CodexConversationParser {
 
                 if payloadType == "message",
                    let message = parseMessagePayload(payload: payload, fallbackIndex: index, timestamp: json["timestamp"] as? String) {
-                    messages.append(message)
+                    appendMessage(message, to: &messages)
                 } else if payloadType == "function_call",
                           let toolCall = parseFunctionCallPayload(payload: payload, fallbackIndex: index, timestamp: json["timestamp"] as? String) {
-                    messages.append(toolCall)
+                    appendMessage(toolCall, to: &messages)
                 } else if payloadType == "function_call_output",
                           let callId = payload["call_id"] as? String {
                     completedToolIds.insert(callId)
@@ -201,6 +211,85 @@ actor CodexConversationParser {
         )
     }
 
+    private func appendMessage(_ message: ChatMessage, to messages: inout [ChatMessage]) {
+        guard let last = messages.last else {
+            messages.append(message)
+            return
+        }
+
+        if shouldMergeDuplicateUserMessage(existing: last, incoming: message) {
+            messages[messages.count - 1] = preferredMessage(existing: last, incoming: message)
+            return
+        }
+
+        messages.append(message)
+    }
+
+    private func shouldMergeDuplicateUserMessage(existing: ChatMessage, incoming: ChatMessage) -> Bool {
+        guard existing.role == .user, incoming.role == .user else { return false }
+        guard existing.textContent == incoming.textContent else { return false }
+
+        let delta = abs(existing.timestamp.timeIntervalSince(incoming.timestamp))
+        return delta < 5
+    }
+
+    private func preferredMessage(existing: ChatMessage, incoming: ChatMessage) -> ChatMessage {
+        let existingImageCount = existing.content.filter {
+            if case .image = $0 { return true }
+            return false
+        }.count
+        let incomingImageCount = incoming.content.filter {
+            if case .image = $0 { return true }
+            return false
+        }.count
+
+        if incomingImageCount > existingImageCount {
+            return incoming
+        }
+        if existingImageCount > incomingImageCount {
+            return existing
+        }
+        if incoming.content.count > existing.content.count {
+            return incoming
+        }
+        return existing
+    }
+
+    private func parseUserMessageEvent(payload: [String: Any], fallbackIndex: Int, timestamp: String?) -> ChatMessage? {
+        var blocks: [MessageBlock] = []
+
+        if let message = payload["message"] as? String,
+           !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            blocks.append(.text(message))
+        }
+
+        if let images = payload["images"] as? [String] {
+            for image in images {
+                guard let block = parseDataURLImageBlock(image) else { continue }
+                blocks.append(.image(block))
+            }
+        }
+
+        if let localImages = payload["local_images"] as? [String] {
+            for path in localImages where !path.isEmpty {
+                blocks.append(.image(ImageBlock(
+                    mediaType: mediaType(forLocalPath: path),
+                    base64Data: nil,
+                    filePath: path
+                )))
+            }
+        }
+
+        guard !blocks.isEmpty else { return nil }
+
+        return ChatMessage(
+            id: payload["id"] as? String ?? "codex-user-\(fallbackIndex)",
+            role: .user,
+            timestamp: parseTimestamp(timestamp),
+            content: blocks
+        )
+    }
+
     private func parseFunctionCallPayload(payload: [String: Any], fallbackIndex: Int, timestamp: String?) -> ChatMessage? {
         guard let callId = payload["call_id"] as? String,
               let name = payload["name"] as? String else {
@@ -218,6 +307,45 @@ actor CodexConversationParser {
             timestamp: parseTimestamp(timestamp),
             content: [.toolUse(ToolUseBlock(id: callId, name: name, input: input))]
         )
+    }
+
+    private func parseDataURLImageBlock(_ value: String) -> ImageBlock? {
+        guard value.hasPrefix("data:"),
+              let commaIndex = value.firstIndex(of: ",") else {
+            return nil
+        }
+
+        let header = String(value[..<commaIndex])
+        let bodyStart = value.index(after: commaIndex)
+        let body = String(value[bodyStart...])
+
+        let mediaType = header
+            .replacingOccurrences(of: "data:", with: "")
+            .replacingOccurrences(of: ";base64", with: "")
+
+        guard !body.isEmpty else { return nil }
+
+        return ImageBlock(mediaType: mediaType.isEmpty ? "image/*" : mediaType, base64Data: body, filePath: nil)
+    }
+
+    private func mediaType(forLocalPath path: String) -> String {
+        let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
+        switch ext {
+        case "png":
+            return "image/png"
+        case "jpg", "jpeg":
+            return "image/jpeg"
+        case "gif":
+            return "image/gif"
+        case "webp":
+            return "image/webp"
+        case "heic":
+            return "image/heic"
+        case "bmp":
+            return "image/bmp"
+        default:
+            return "image/*"
+        }
     }
 
     private func parseTimestamp(_ value: String?) -> Date {

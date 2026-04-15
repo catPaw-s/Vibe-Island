@@ -136,6 +136,7 @@ struct InstanceRow: View {
 
     private let claudeOrange = Color(red: 0.85, green: 0.47, blue: 0.34)
     private let spinnerSymbols = ["·", "✢", "✳", "∗", "✻", "✽"]
+    private let codexSpinnerSymbols = ["[·]", "[•]", "[+]", "[×]", "[•]", "[·]"]
     private let spinnerTimer = Timer.publish(every: 0.15, on: .main, in: .common).autoconnect()
 
     /// Whether we're showing the approval UI
@@ -176,11 +177,29 @@ struct InstanceRow: View {
         }
     }
 
+    private var stateIndicatorText: String {
+        switch session.source {
+        case .claude:
+            return spinnerSymbols[spinnerPhase % spinnerSymbols.count]
+        case .codex:
+            return codexSpinnerSymbols[spinnerPhase % codexSpinnerSymbols.count]
+        }
+    }
+
+    private var stateIndicatorWidth: CGFloat {
+        switch session.source {
+        case .claude:
+            return 14
+        case .codex:
+            return 24
+        }
+    }
+
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             // State indicator on left
             stateIndicator
-                .frame(width: 14)
+                .frame(width: stateIndicatorWidth, alignment: .leading)
 
             // Text content
             VStack(alignment: .leading, spacing: 2) {
@@ -358,16 +377,18 @@ struct InstanceRow: View {
     private var stateIndicator: some View {
         switch session.phase {
         case .processing, .compacting:
-            Text(spinnerSymbols[spinnerPhase % spinnerSymbols.count])
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(claudeOrange)
+            Text(stateIndicatorText)
+                .font(.system(size: session.source == .codex ? 10 : 12, weight: .bold, design: .monospaced))
+                .foregroundColor(sourceBadgeColor)
+                .fixedSize(horizontal: true, vertical: false)
                 .onReceive(spinnerTimer) { _ in
                     spinnerPhase = (spinnerPhase + 1) % spinnerSymbols.count
                 }
         case .waitingForApproval:
-            Text(spinnerSymbols[spinnerPhase % spinnerSymbols.count])
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(TerminalColors.amber)
+            Text(stateIndicatorText)
+                .font(.system(size: session.source == .codex ? 10 : 12, weight: .bold, design: .monospaced))
+                .foregroundColor(session.source == .codex ? TerminalColors.blue.opacity(0.9) : TerminalColors.amber)
+                .fixedSize(horizontal: true, vertical: false)
                 .onReceive(spinnerTimer) { _ in
                     spinnerPhase = (spinnerPhase + 1) % spinnerSymbols.count
                 }
