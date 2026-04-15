@@ -6,9 +6,11 @@
 //
 
 import Combine
+import os.log
 import SwiftUI
 
 struct ChatView: View {
+    private static let logger = Logger(subsystem: "com.claudeisland", category: "ChatView")
     let sessionId: String
     let initialSession: SessionState
     let sessionMonitor: ClaudeSessionMonitor
@@ -295,6 +297,13 @@ struct ChatView: View {
                         MessageItemView(item: item, sessionId: sessionId)
                             .padding(.horizontal, 16)
                             .scaleEffect(x: 1, y: -1)
+                            .contentShape(Rectangle())
+                            .highPriorityGesture(
+                                TapGesture().onEnded {
+                                    Self.logger.debug("Message row tapped sessionId=\(sessionId, privacy: .public) itemId=\(item.id, privacy: .public)")
+                                    focusTerminal()
+                                }
+                            )
                             .transition(.asymmetric(
                                 insertion: .opacity.combined(with: .scale(scale: 0.98)),
                                 removal: .opacity
@@ -353,14 +362,14 @@ struct ChatView: View {
 
     // MARK: - Input Bar
 
-    /// Can send messages only if session is in tmux
+    /// Can send messages only if session is in a supported terminal multiplexer
     private var canSendMessages: Bool {
-        session.isInTmux && session.tty != nil
+        session.isInTerminalMultiplexer && session.tty != nil
     }
 
     private var inputBar: some View {
         HStack(spacing: 10) {
-            TextField(canSendMessages ? "Message Claude..." : "Open Claude Code in tmux to enable messaging", text: $inputText)
+            TextField(canSendMessages ? "Message Claude..." : "Open Claude Code in tmux/cmux to enable messaging", text: $inputText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .foregroundColor(canSendMessages ? .white : .white.opacity(0.4))
@@ -422,7 +431,7 @@ struct ChatView: View {
     /// Bar for interactive tools like AskUserQuestion that need terminal input
     private var interactivePromptBar: some View {
         ChatInteractivePromptBar(
-            isInTmux: session.isInTmux,
+            canOpenTerminal: session.isInTerminalMultiplexer,
             onGoToTerminal: { focusTerminal() }
         )
     }
@@ -445,8 +454,11 @@ struct ChatView: View {
     // MARK: - Actions
 
     private func focusTerminal() {
+        Self.logger.debug("focusTerminal sessionId=\(sessionId, privacy: .public) pid=\(session.pid ?? -1, privacy: .public) tty=\(session.tty ?? "nil", privacy: .public) cwd=\(session.cwd, privacy: .public) multiplexer=\(session.terminalMultiplexer?.rawValue ?? "nil", privacy: .public)")
         Task {
-            if let pid = session.pid {
+            if let tty = session.tty {
+                _ = await YabaiController.shared.focusWindow(forTTY: tty, preferred: session.terminalMultiplexer)
+            } else if let pid = session.pid {
                 _ = await YabaiController.shared.focusWindow(forClaudePid: pid)
             } else {
                 _ = await YabaiController.shared.focusWindow(forWorkingDirectory: session.cwd)
@@ -479,42 +491,29 @@ struct ChatView: View {
     }
 
     private func sendToSession(_ text: String) async {
-        guard session.isInTmux else { return }
+        guard session.isInTerminalMultiplexer else { return }
         guard let tty = session.tty else { return }
 
-        if let target = await findTmuxTarget(tty: tty) {
-            _ = await ToolApprovalHandler.shared.sendMessage(text, to: target)
-        }
-    }
+        Self.logger.debug("sendToSession sessionId=\(sessionId, privacy: .public) tty=\(tty, privacy: .public) multiplexer=\(session.terminalMultiplexer?.rawValue ?? "nil", privacy: .public)")
 
-    private func findTmuxTarget(tty: String) async -> TmuxTarget? {
-        guard let tmuxPath = await TmuxPathFinder.shared.getTmuxPath() else {
-            return nil
-        }
-
-        do {
-            let output = try await ProcessExecutor.shared.run(
-                tmuxPath,
-                arguments: ["list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index} #{pane_tty}"]
-            )
-
-            let lines = output.components(separatedBy: "\n")
-            for line in lines {
-                let parts = line.components(separatedBy: " ")
-                guard parts.count >= 2 else { continue }
-
-                let target = parts[0]
-                let paneTty = parts[1].replacingOccurrences(of: "/dev/", with: "")
-
-                if paneTty == tty {
-                    return TmuxTarget(from: target)
-                }
+        switch session.terminalMultiplexer {
+        case .tmux:
+            if let target = await TmuxTargetFinder.shared.findTarget(forTTY: tty) {
+                Self.logger.debug("Resolved tmux target=\(target.targetString, privacy: .public)")
+                _ = await ToolApprovalHandler.shared.sendMessage(text, to: target)
+            } else {
+                Self.logger.error("Failed to resolve tmux target for sessionId=\(sessionId, privacy: .public) tty=\(tty, privacy: .public)")
             }
-        } catch {
-            return nil
+        case .cmux:
+            if let target = await CmuxTargetFinder.shared.findTarget(forTTY: tty) {
+                Self.logger.debug("Resolved cmux target workspace=\(target.workspaceRef, privacy: .public) pane=\(target.paneRef, privacy: .public) surface=\(target.surfaceRef ?? "-", privacy: .public)")
+                _ = await CmuxController.shared.sendMessage(text, to: target)
+            } else {
+                Self.logger.error("Failed to resolve cmux target for sessionId=\(sessionId, privacy: .public) tty=\(tty, privacy: .public)")
+            }
+        case nil:
+            Self.logger.error("Failed to send: no terminal multiplexer for sessionId=\(sessionId, privacy: .public)")
         }
-
-        return nil
     }
 }
 
@@ -1050,7 +1049,7 @@ struct InterruptedMessageView: View {
 
 /// Bar for interactive tools like AskUserQuestion that need terminal input
 struct ChatInteractivePromptBar: View {
-    let isInTmux: Bool
+    let canOpenTerminal: Bool
     let onGoToTerminal: () -> Void
 
     @State private var showContent = false
@@ -1075,7 +1074,7 @@ struct ChatInteractivePromptBar: View {
 
             // Terminal button on right (similar to Allow button)
             Button {
-                if isInTmux {
+                if canOpenTerminal {
                     onGoToTerminal()
                 }
             } label: {
@@ -1085,10 +1084,10 @@ struct ChatInteractivePromptBar: View {
                     Text("Terminal")
                         .font(.system(size: 13, weight: .medium))
                 }
-                .foregroundColor(isInTmux ? .black : .white.opacity(0.4))
+                .foregroundColor(canOpenTerminal ? .black : .white.opacity(0.4))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
-                .background(isInTmux ? Color.white.opacity(0.95) : Color.white.opacity(0.1))
+                .background(canOpenTerminal ? Color.white.opacity(0.95) : Color.white.opacity(0.1))
                 .clipShape(Capsule())
             }
             .buttonStyle(.plain)

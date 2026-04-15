@@ -81,8 +81,8 @@ actor SessionStore {
         case .sessionEnded(let sessionId):
             await processSessionEnd(sessionId: sessionId)
 
-        case .loadHistory(let sessionId, let cwd):
-            await loadHistoryFromFile(sessionId: sessionId, cwd: cwd)
+        case .loadHistory(let sessionId, let cwd, let source):
+            await loadHistoryFromFile(sessionId: sessionId, cwd: cwd, source: source)
 
         case .historyLoaded(let sessionId, let messages, let completedTools, let toolResults, let structuredResults, let conversationInfo):
             await processHistoryLoaded(
@@ -128,16 +128,18 @@ actor SessionStore {
 
         // Track new session in Mixpanel
         if isNewSession {
+            AnalyticsManager.ensureInitialized()
             Mixpanel.mainInstance().track(event: "Session Started")
         }
 
         session.pid = event.pid
         if let pid = event.pid {
             let tree = ProcessTreeBuilder.shared.buildTree()
-            session.isInTmux = ProcessTreeBuilder.shared.isInTmux(pid: pid, tree: tree)
+            session.terminalMultiplexer = ProcessTreeBuilder.shared.terminalMultiplexer(pid: pid, tree: tree)
         }
         if let tty = event.tty {
             session.tty = tty.replacingOccurrences(of: "/dev/", with: "")
+            Self.logger.debug("Hook event sessionId=\(sessionId, privacy: .public) pid=\(event.pid ?? -1, privacy: .public) tty=\(session.tty ?? "nil", privacy: .public) multiplexer=\(session.terminalMultiplexer?.rawValue ?? "nil", privacy: .public)")
         }
         session.lastActivity = Date()
 
@@ -180,9 +182,10 @@ actor SessionStore {
             sessionId: event.sessionId,
             cwd: event.cwd,
             projectName: URL(fileURLWithPath: event.cwd).lastPathComponent,
+            source: event.source,
             pid: event.pid,
             tty: event.tty?.replacingOccurrences(of: "/dev/", with: ""),
-            isInTmux: false,  // Will be updated
+            terminalMultiplexer: nil,  // Will be updated
             phase: .idle
         )
     }
@@ -555,11 +558,12 @@ actor SessionStore {
         guard var session = sessions[payload.sessionId] else { return }
 
         // Update conversationInfo from JSONL (summary, lastMessage, etc.)
-        let conversationInfo = await ConversationParser.shared.parse(
+        let integration = EditorIntegrationRegistry.integration(for: payload.source)
+        let conversation = await integration.loadConversation(
             sessionId: payload.sessionId,
             cwd: session.cwd
         )
-        session.conversationInfo = conversationInfo
+        session.conversationInfo = conversation.conversationInfo
 
         // Handle /clear reconciliation - remove items that no longer exist in parser state
         if session.needsClearReconciliation {
@@ -932,30 +936,18 @@ actor SessionStore {
 
     // MARK: - History Loading
 
-    private func loadHistoryFromFile(sessionId: String, cwd: String) async {
-        // Parse file asynchronously
-        let messages = await ConversationParser.shared.parseFullConversation(
-            sessionId: sessionId,
-            cwd: cwd
-        )
-        let completedTools = await ConversationParser.shared.completedToolIds(for: sessionId)
-        let toolResults = await ConversationParser.shared.toolResults(for: sessionId)
-        let structuredResults = await ConversationParser.shared.structuredResults(for: sessionId)
-
-        // Also parse conversationInfo (summary, lastMessage, etc.)
-        let conversationInfo = await ConversationParser.shared.parse(
-            sessionId: sessionId,
-            cwd: cwd
-        )
+    private func loadHistoryFromFile(sessionId: String, cwd: String, source: EditorSource) async {
+        let integration = EditorIntegrationRegistry.integration(for: source)
+        let conversation = await integration.loadConversation(sessionId: sessionId, cwd: cwd)
 
         // Process loaded history
         await process(.historyLoaded(
             sessionId: sessionId,
-            messages: messages,
-            completedTools: completedTools,
-            toolResults: toolResults,
-            structuredResults: structuredResults,
-            conversationInfo: conversationInfo
+            messages: conversation.messages,
+            completedTools: conversation.completedToolIds,
+            toolResults: conversation.toolResults,
+            structuredResults: conversation.structuredResults,
+            conversationInfo: conversation.conversationInfo
         ))
     }
 
@@ -1003,6 +995,8 @@ actor SessionStore {
     // MARK: - File Sync Scheduling
 
     private func scheduleFileSync(sessionId: String, cwd: String) {
+        let source = sessions[sessionId]?.source ?? .claude
+
         // Cancel existing sync
         cancelPendingSync(sessionId: sessionId)
 
@@ -1012,10 +1006,8 @@ actor SessionStore {
             guard !Task.isCancelled else { return }
 
             // Parse incrementally - only get NEW messages since last call
-            let result = await ConversationParser.shared.parseIncremental(
-                sessionId: sessionId,
-                cwd: cwd
-            )
+            let integration = EditorIntegrationRegistry.integration(for: source)
+            let result = await integration.syncConversation(sessionId: sessionId, cwd: cwd)
 
             if result.clearDetected {
                 await self?.process(.clearDetected(sessionId: sessionId))
@@ -1028,6 +1020,7 @@ actor SessionStore {
             let payload = FileUpdatePayload(
                 sessionId: sessionId,
                 cwd: cwd,
+                source: source,
                 messages: result.newMessages,
                 isIncremental: !result.clearDetected,
                 completedToolIds: result.completedToolIds,

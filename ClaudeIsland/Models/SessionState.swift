@@ -16,12 +16,13 @@ struct SessionState: Equatable, Identifiable, Sendable {
     let sessionId: String
     let cwd: String
     let projectName: String
+    let source: EditorSource
 
     // MARK: - Instance Metadata
 
     var pid: Int?
     var tty: String?
-    var isInTmux: Bool
+    var terminalMultiplexer: TerminalMultiplexerKind?
 
     // MARK: - State Machine
 
@@ -68,9 +69,10 @@ struct SessionState: Equatable, Identifiable, Sendable {
         sessionId: String,
         cwd: String,
         projectName: String? = nil,
+        source: EditorSource = .claude,
         pid: Int? = nil,
         tty: String? = nil,
-        isInTmux: Bool = false,
+        terminalMultiplexer: TerminalMultiplexerKind? = nil,
         phase: SessionPhase = .idle,
         chatItems: [ChatHistoryItem] = [],
         toolTracker: ToolTracker = ToolTracker(),
@@ -86,9 +88,10 @@ struct SessionState: Equatable, Identifiable, Sendable {
         self.sessionId = sessionId
         self.cwd = cwd
         self.projectName = projectName ?? URL(fileURLWithPath: cwd).lastPathComponent
+        self.source = source
         self.pid = pid
         self.tty = tty
-        self.isInTmux = isInTmux
+        self.terminalMultiplexer = terminalMultiplexer
         self.phase = phase
         self.chatItems = chatItems
         self.toolTracker = toolTracker
@@ -104,6 +107,10 @@ struct SessionState: Equatable, Identifiable, Sendable {
     /// Whether this session needs user attention
     var needsAttention: Bool {
         phase.needsAttention
+    }
+
+    var isInTerminalMultiplexer: Bool {
+        terminalMultiplexer != nil
     }
 
     /// The active permission context, if any

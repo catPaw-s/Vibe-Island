@@ -27,6 +27,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         super.init()
         AppDelegate.shared = self
+        AnalyticsManager.ensureInitialized()
 
         do {
             try updater.start()
@@ -40,8 +41,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSApplication.shared.terminate(nil)
             return
         }
-
-        Mixpanel.initialize(token: "49814c1436104ed108f3fc4735228496")
 
         let distinctId = getOrCreateDistinctId()
         Mixpanel.mainInstance().identify(distinctId: distinctId)

@@ -71,7 +71,7 @@ enum SessionEvent: Sendable {
     case sessionEnded(sessionId: String)
 
     /// Request to load initial history from file
-    case loadHistory(sessionId: String, cwd: String)
+    case loadHistory(sessionId: String, cwd: String, source: EditorSource)
 
     /// History load completed
     case historyLoaded(sessionId: String, messages: [ChatMessage], completedTools: Set<String>, toolResults: [String: ConversationParser.ToolResult], structuredResults: [String: ToolResultData], conversationInfo: ConversationInfo)
@@ -81,6 +81,7 @@ enum SessionEvent: Sendable {
 struct FileUpdatePayload: Sendable {
     let sessionId: String
     let cwd: String
+    let source: EditorSource
     /// Messages to process - either only new messages (if isIncremental) or all messages
     let messages: [ChatMessage]
     /// When true, messages contains only NEW messages since last update
@@ -169,12 +170,7 @@ extension HookEvent {
 
     /// Whether this event should trigger a file sync
     nonisolated var shouldSyncFile: Bool {
-        switch event {
-        case "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop":
-            return true
-        default:
-            return false
-        }
+        EditorIntegrationRegistry.integration(for: source).shouldSyncConversation(for: self)
     }
 }
 
@@ -199,7 +195,7 @@ extension SessionEvent: CustomStringConvertible {
             return "clearDetected(session: \(sessionId.prefix(8)))"
         case .sessionEnded(let sessionId):
             return "sessionEnded(session: \(sessionId.prefix(8)))"
-        case .loadHistory(let sessionId, _):
+        case .loadHistory(let sessionId, _, _):
             return "loadHistory(session: \(sessionId.prefix(8)))"
         case .historyLoaded(let sessionId, let messages, _, _, _, _):
             return "historyLoaded(session: \(sessionId.prefix(8)), messages: \(messages.count))"

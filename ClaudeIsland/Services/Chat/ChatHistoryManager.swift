@@ -45,26 +45,24 @@ class ChatHistoryManager: ObservableObject {
     func loadFromFile(sessionId: String, cwd: String) async {
         guard !jsonlParsedSessions.contains(sessionId) else { return }
         jsonlParsedSessions.insert(sessionId)
-        await SessionStore.shared.process(.loadHistory(sessionId: sessionId, cwd: cwd))
+        let source = await SessionStore.shared.session(for: sessionId)?.source ?? .claude
+        await SessionStore.shared.process(.loadHistory(sessionId: sessionId, cwd: cwd, source: source))
     }
 
     func syncFromFile(sessionId: String, cwd: String) async {
-        let messages = await ConversationParser.shared.parseFullConversation(
-            sessionId: sessionId,
-            cwd: cwd
-        )
-        let completedTools = await ConversationParser.shared.completedToolIds(for: sessionId)
-        let toolResults = await ConversationParser.shared.toolResults(for: sessionId)
-        let structuredResults = await ConversationParser.shared.structuredResults(for: sessionId)
+        let source = await SessionStore.shared.session(for: sessionId)?.source ?? .claude
+        let integration = EditorIntegrationRegistry.integration(for: source)
+        let conversation = await integration.loadConversation(sessionId: sessionId, cwd: cwd)
 
         let payload = FileUpdatePayload(
             sessionId: sessionId,
             cwd: cwd,
-            messages: messages,
+            source: source,
+            messages: conversation.messages,
             isIncremental: false,  // Full sync
-            completedToolIds: completedTools,
-            toolResults: toolResults,
-            structuredResults: structuredResults
+            completedToolIds: conversation.completedToolIds,
+            toolResults: conversation.toolResults,
+            structuredResults: conversation.structuredResults
         )
 
         await SessionStore.shared.process(.fileUpdated(payload))

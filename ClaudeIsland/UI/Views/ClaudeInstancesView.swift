@@ -6,6 +6,7 @@
 //
 
 import Combine
+import os.log
 import SwiftUI
 
 struct ClaudeInstancesView: View {
@@ -88,10 +89,12 @@ struct ClaudeInstancesView: View {
     // MARK: - Actions
 
     private func focusSession(_ session: SessionState) {
-        guard session.isInTmux else { return }
+        guard session.isInTerminalMultiplexer else { return }
 
         Task {
-            if let pid = session.pid {
+            if let tty = session.tty {
+                _ = await YabaiController.shared.focusWindow(forTTY: tty, preferred: session.terminalMultiplexer)
+            } else if let pid = session.pid {
                 _ = await YabaiController.shared.focusWindow(forClaudePid: pid)
             } else {
                 _ = await YabaiController.shared.focusWindow(forWorkingDirectory: session.cwd)
@@ -119,6 +122,7 @@ struct ClaudeInstancesView: View {
 // MARK: - Instance Row
 
 struct InstanceRow: View {
+    private static let logger = Logger(subsystem: "com.claudeisland", category: "InstanceRow")
     let session: SessionState
     let onFocus: () -> Void
     let onChat: () -> Void
@@ -163,6 +167,15 @@ struct InstanceRow: View {
         }
     }
 
+    private var sourceBadgeColor: Color {
+        switch session.source {
+        case .claude:
+            return claudeOrange
+        case .codex:
+            return TerminalColors.blue
+        }
+    }
+
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             // State indicator on left
@@ -176,6 +189,16 @@ struct InstanceRow: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.white)
                         .lineLimit(1)
+
+                    Text(session.source.displayName.uppercased())
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundColor(sourceBadgeColor.opacity(0.95))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(sourceBadgeColor.opacity(0.16))
+                        )
 
                     // Token usage indicator
                     if session.usage.totalTokens > 0 {
@@ -270,7 +293,7 @@ struct InstanceRow: View {
                     // Go to Terminal button (only if yabai available)
                     if isYabaiAvailable {
                         TerminalButton(
-                            isEnabled: session.isInTmux,
+                            isEnabled: session.isInTerminalMultiplexer,
                             onTap: { onFocus() }
                         )
                     }
@@ -290,8 +313,8 @@ struct InstanceRow: View {
                         onChat()
                     }
 
-                    // Focus icon (only for tmux instances with yabai)
-                    if session.isInTmux && isYabaiAvailable {
+                    // Focus icon (only for multiplexer-backed instances with yabai)
+                    if session.isInTerminalMultiplexer && isYabaiAvailable {
                         IconButton(icon: "eye") {
                             onFocus()
                         }
@@ -311,6 +334,12 @@ struct InstanceRow: View {
         .padding(.trailing, 14)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
+        .onTapGesture {
+            Self.logger.debug("Instance row tapped sessionId=\(session.sessionId, privacy: .public) pid=\(session.pid ?? -1, privacy: .public) tty=\(session.tty ?? "nil", privacy: .public) multiplexer=\(session.terminalMultiplexer?.rawValue ?? "nil", privacy: .public)")
+            if session.isInTerminalMultiplexer {
+                onFocus()
+            }
+        }
         .onTapGesture(count: 2) {
             onChat()
         }

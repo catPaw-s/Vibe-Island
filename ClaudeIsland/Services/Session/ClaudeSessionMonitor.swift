@@ -140,7 +140,8 @@ class ClaudeSessionMonitor: ObservableObject {
     /// Request history load for a session
     func loadHistory(sessionId: String, cwd: String) {
         Task {
-            await SessionStore.shared.process(.loadHistory(sessionId: sessionId, cwd: cwd))
+            let source = await SessionStore.shared.session(for: sessionId)?.source ?? .claude
+            await SessionStore.shared.process(.loadHistory(sessionId: sessionId, cwd: cwd, source: source))
         }
     }
 }

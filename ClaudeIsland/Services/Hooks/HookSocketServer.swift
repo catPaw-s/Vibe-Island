@@ -18,6 +18,7 @@ struct HookEvent: Codable, Sendable {
     let cwd: String
     let event: String
     let status: String
+    let source: EditorSource
     let pid: Int?
     let tty: String?
     let tool: String?
@@ -28,7 +29,7 @@ struct HookEvent: Codable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
-        case cwd, event, status, pid, tty, tool
+        case cwd, event, status, source, pid, tty, tool
         case toolInput = "tool_input"
         case toolUseId = "tool_use_id"
         case notificationType = "notification_type"
@@ -36,11 +37,12 @@ struct HookEvent: Codable, Sendable {
     }
 
     /// Create a copy with updated toolUseId
-    init(sessionId: String, cwd: String, event: String, status: String, pid: Int?, tty: String?, tool: String?, toolInput: [String: AnyCodable]?, toolUseId: String?, notificationType: String?, message: String?) {
+    init(sessionId: String, cwd: String, event: String, status: String, source: EditorSource, pid: Int?, tty: String?, tool: String?, toolInput: [String: AnyCodable]?, toolUseId: String?, notificationType: String?, message: String?) {
         self.sessionId = sessionId
         self.cwd = cwd
         self.event = event
         self.status = status
+        self.source = source
         self.pid = pid
         self.tty = tty
         self.tool = tool
@@ -48,6 +50,22 @@ struct HookEvent: Codable, Sendable {
         self.toolUseId = toolUseId
         self.notificationType = notificationType
         self.message = message
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sessionId = try container.decode(String.self, forKey: .sessionId)
+        cwd = try container.decode(String.self, forKey: .cwd)
+        event = try container.decode(String.self, forKey: .event)
+        status = try container.decode(String.self, forKey: .status)
+        source = try container.decodeIfPresent(EditorSource.self, forKey: .source) ?? .claude
+        pid = try container.decodeIfPresent(Int.self, forKey: .pid)
+        tty = try container.decodeIfPresent(String.self, forKey: .tty)
+        tool = try container.decodeIfPresent(String.self, forKey: .tool)
+        toolInput = try container.decodeIfPresent([String: AnyCodable].self, forKey: .toolInput)
+        toolUseId = try container.decodeIfPresent(String.self, forKey: .toolUseId)
+        notificationType = try container.decodeIfPresent(String.self, forKey: .notificationType)
+        message = try container.decodeIfPresent(String.self, forKey: .message)
     }
 
     var sessionPhase: SessionPhase {
@@ -441,6 +459,7 @@ class HookSocketServer {
                 cwd: event.cwd,
                 event: event.event,
                 status: event.status,
+                source: event.source,
                 pid: event.pid,
                 tty: event.tty,
                 tool: event.tool,

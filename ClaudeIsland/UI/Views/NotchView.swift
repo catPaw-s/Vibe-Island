@@ -358,6 +358,17 @@ struct NotchView: View {
                 )
             case .menu:
                 NotchMenuView(viewModel: viewModel)
+            case .permission(let sessionId):
+                if let session = sessionMonitor.instances.first(where: { $0.sessionId == sessionId }) {
+                    PermissionPromptView(
+                        session: session,
+                        onApprove: { sessionMonitor.approvePermission(sessionId: sessionId) },
+                        onDeny: { sessionMonitor.denyPermission(sessionId: sessionId, reason: nil) },
+                        onOpenChat: { viewModel.showChat(for: session) }
+                    )
+                } else {
+                    PermissionPromptUnavailableView()
+                }
             case .chat(let session):
                 ChatView(
                     sessionId: session.sessionId,
@@ -426,13 +437,42 @@ struct NotchView: View {
         let currentIds = Set(sessions.map { $0.stableId })
         let newPendingIds = currentIds.subtracting(previousPendingIds)
 
-        if !newPendingIds.isEmpty &&
-           viewModel.status == .closed &&
-           !TerminalVisibilityDetector.isTerminalVisibleOnCurrentSpace() {
-            viewModel.notchOpen(reason: .notification)
+        if case .permission(let sessionId) = viewModel.contentType,
+           !sessions.contains(where: { $0.sessionId == sessionId && $0.phase.isWaitingForApproval }) {
+            viewModel.contentType = .instances
+        }
+
+        if !newPendingIds.isEmpty,
+           let targetSession = sessions.first(where: { newPendingIds.contains($0.stableId) }) {
+            surfacePermissionPrompt(for: targetSession)
         }
 
         previousPendingIds = currentIds
+    }
+
+    private func surfacePermissionPrompt(for session: SessionState) {
+        if case .chat(let currentSession) = viewModel.contentType,
+           currentSession.sessionId == session.sessionId,
+           viewModel.status == .opened {
+            return
+        }
+
+        viewModel.showPermission(sessionId: session.sessionId)
+        isVisible = true
+
+        switch viewModel.status {
+        case .closed, .popping:
+            viewModel.notchOpen(reason: .notification)
+        case .opened:
+            break
+        }
+
+        DispatchQueue.main.async {
+            isBouncing = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                isBouncing = false
+            }
+        }
     }
 
     private func handleWaitingForInputChange(_ instances: [SessionState]) {

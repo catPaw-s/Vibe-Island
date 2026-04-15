@@ -1,30 +1,30 @@
 //
-//  TmuxPathFinder.swift
+//  CmuxPathFinder.swift
 //  ClaudeIsland
 //
-//  Finds tmux executable path
+//  Finds cmux executable path.
 //
 
 import Foundation
 
-/// Finds and caches the tmux executable path
-actor TmuxPathFinder {
-    static let shared = TmuxPathFinder()
+actor CmuxPathFinder {
+    static let shared = CmuxPathFinder()
 
     private var cachedPath: String?
 
     private init() {}
 
-    func getTmuxPath() -> String? {
+    func getCmuxPath() -> String? {
         if let cachedPath {
             return cachedPath
         }
 
         let candidates = [
-            "/opt/homebrew/bin/tmux",
-            "/usr/local/bin/tmux",
-            "/usr/bin/tmux",
-            "/bin/tmux"
+            "/Applications/cmux.app/Contents/Resources/bin/cmux",
+            "/opt/homebrew/bin/cmux",
+            "/usr/local/bin/cmux",
+            "/usr/bin/cmux",
+            "/bin/cmux"
         ]
 
         for path in candidates where FileManager.default.isExecutableFile(atPath: path) {

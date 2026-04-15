@@ -54,21 +54,25 @@ struct ProcessTreeBuilder: Sendable {
         return tree
     }
 
-    /// Check if a process has tmux in its parent chain
-    nonisolated func isInTmux(pid: Int, tree: [Int: ProcessInfo]) -> Bool {
+    /// Detect which terminal multiplexer, if any, is in the parent chain.
+    nonisolated func terminalMultiplexer(pid: Int, tree: [Int: ProcessInfo]) -> TerminalMultiplexerKind? {
         var current = pid
         var depth = 0
 
         while current > 1 && depth < 20 {
             guard let info = tree[current] else { break }
-            if info.command.lowercased().contains("tmux") {
-                return true
+            let command = info.command.lowercased()
+            if command.contains("cmux") {
+                return .cmux
+            }
+            if command.contains("tmux") {
+                return .tmux
             }
             current = info.ppid
             depth += 1
         }
 
-        return false
+        return nil
     }
 
     /// Walk up the process tree to find the terminal app PID

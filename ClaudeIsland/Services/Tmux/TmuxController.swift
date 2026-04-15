@@ -6,10 +6,12 @@
 //
 
 import Foundation
+import os.log
 
 /// Controller for tmux operations
 actor TmuxController {
     static let shared = TmuxController()
+    nonisolated static let logger = Logger(subsystem: "com.claudeisland", category: "TmuxController")
 
     private init() {}
 
@@ -39,10 +41,12 @@ actor TmuxController {
 
     func switchToPane(target: TmuxTarget) async -> Bool {
         guard let tmuxPath = await TmuxPathFinder.shared.getTmuxPath() else {
+            Self.logger.error("switchToPane failed: no tmux executable")
             return false
         }
 
         do {
+            Self.logger.debug("switchToPane tmux target=\(target.targetString, privacy: .public)")
             _ = try await ProcessExecutor.shared.run(tmuxPath, arguments: [
                 "select-window", "-t", "\(target.session):\(target.window)"
             ])
@@ -53,6 +57,7 @@ actor TmuxController {
 
             return true
         } catch {
+            Self.logger.error("switchToPane failed target=\(target.targetString, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             return false
         }
     }

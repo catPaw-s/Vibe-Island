@@ -93,6 +93,7 @@ def main():
         "event": event,
         "pid": claude_pid,
         "tty": tty,
+        "source": "claude",
     }
 
     # Map events to status

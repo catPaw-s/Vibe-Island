@@ -17,7 +17,11 @@ struct TmuxTarget: Sendable {
         "\(session):\(window).\(pane)"
     }
 
-    nonisolated init(session: String, window: String, pane: String) {
+    nonisolated init(
+        session: String,
+        window: String,
+        pane: String
+    ) {
         self.session = session
         self.window = window
         self.pane = pane
