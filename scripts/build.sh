@@ -1,14 +1,14 @@
 #!/bin/bash
-# Build Claude Island for release
+# Build Vibe Island for release
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_DIR/build"
-ARCHIVE_PATH="$BUILD_DIR/ClaudeIsland.xcarchive"
+ARCHIVE_PATH="$BUILD_DIR/VibeIsland.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
 
-echo "=== Building Claude Island ==="
+echo "=== Building Vibe Island ==="
 echo ""
 
 # Clean previous builds
@@ -84,6 +84,6 @@ fi
 
 echo ""
 echo "=== Build Complete ==="
-echo "App exported to: $EXPORT_PATH/Claude Island.app"
+echo "App exported to: $EXPORT_PATH/Vibe Island.app"
 echo ""
 echo "Next: Run ./scripts/create-release.sh to notarize and create DMG"

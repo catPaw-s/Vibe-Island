@@ -8,7 +8,7 @@
 import SwiftUI
 
 @main
-struct ClaudeIslandApp: App {
+struct VibeIslandApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {

@@ -173,7 +173,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func ensureSingleInstance() -> Bool {
-        let bundleID = Bundle.main.bundleIdentifier ?? "com.farouqaldori.ClaudeIsland"
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.catpaw.VibeIsland"
         let runningApps = NSWorkspace.shared.runningApplications.filter {
             $0.bundleIdentifier == bundleID
         }
